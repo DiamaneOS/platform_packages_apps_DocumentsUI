@@ -17,6 +17,7 @@ package com.android.documentsui.inspector;
 
 import static androidx.core.util.Preconditions.checkArgument;
 
+import static com.android.documentsui.util.FlagUtils.isUseMaterial3FlagEnabled;
 import static com.android.documentsui.util.Material3Config.getRes;
 
 import android.content.Context;
@@ -35,6 +36,9 @@ import com.android.documentsui.R;
 import com.android.documentsui.base.Shared;
 import com.android.documentsui.base.UserId;
 import com.android.documentsui.inspector.InspectorController.DataSupplier;
+import com.android.modules.utils.build.SdkLevel;
+
+import com.google.android.material.color.DynamicColors;
 
 public class InspectorActivity extends AppCompatActivity {
 
@@ -62,6 +66,10 @@ public class InspectorActivity extends AppCompatActivity {
         // If version code is not match, we should reset overlay package to default,
         // in case Activity continueusly encounter resource not found exception
         getTheme().applyStyle(getRes(R.style.DocumentsDefaultTheme), false);
+        // Dynamic colours as every other screen of the app has them (BaseActivity).
+        if (isUseMaterial3FlagEnabled() && SdkLevel.isAtLeastS()) {
+            DynamicColors.applyToActivityIfAvailable(this);
+        }
 
         setContentView(getRes(R.layout.inspector_activity));
 
