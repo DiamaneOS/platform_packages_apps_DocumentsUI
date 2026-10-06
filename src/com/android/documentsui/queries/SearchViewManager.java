@@ -17,6 +17,7 @@
 package com.android.documentsui.queries;
 
 import static com.android.documentsui.base.SharedMinimal.DEBUG;
+import static com.android.documentsui.base.State.ACTION_BROWSE;
 import static com.android.documentsui.base.State.ACTION_GET_CONTENT;
 import static com.android.documentsui.base.State.ACTION_OPEN;
 import static com.android.documentsui.base.State.ActionType;
@@ -26,6 +27,7 @@ import static com.android.documentsui.util.FlagUtils.isUseAllfilesRootForRecents
 import static com.android.documentsui.util.FlagUtils.isUseMaterial3FlagEnabled;
 import static com.android.documentsui.util.Material3Config.getRes;
 
+import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -84,6 +86,9 @@ public class SearchViewManager implements
 
     // How long we wait after the user finishes typing before kicking off a search.
     public static final int SEARCH_DELAY_MS = 750;
+
+    /** DiamaneOS: the most of the words another app hands Files to search for that are kept. */
+    public static final int MAX_INTENT_QUERY_LENGTH = 200;
 
     private final SearchManagerListener mListener;
     private final EventHandler<String> mCommandProcessor;
@@ -186,6 +191,11 @@ public class SearchViewManager implements
      * Parse the query content from Intent. If the action is not {@link State#ACTION_GET_CONTENT} or
      * {@link State#ACTION_OPEN}, don't perform search.
      *
+     * <p>DiamaneOS: also in browse mode ({@link State#ACTION_BROWSE}) for an
+     * {@link Intent#ACTION_SEARCH} intent, with the words in {@link SearchManager#QUERY}, as
+     * {@code FilesSearchActivity} hands them on. Only those words are read, cleaned and capped
+     * ({@link #cleanIntentQuery}). They are searched for but not added to the search history.
+     *
      * @param intent the intent to parse.
      * @param action the action to check.
      * @return True, if get the query content from the intent. Otherwise, false.
@@ -197,8 +207,48 @@ public class SearchViewManager implements
                 mQueryContentFromIntent = queryString;
                 return true;
             }
+        } else if (action == ACTION_BROWSE && Intent.ACTION_SEARCH.equals(intent.getAction())) {
+            final String queryString =
+                    cleanIntentQuery(intent.getStringExtra(SearchManager.QUERY));
+            if (queryString != null) {
+                mQueryContentFromIntent = queryString;
+                return true;
+            }
         }
         return false;
+    }
+
+    /**
+     * DiamaneOS: the words another app hands Files to search for, as searched: control and format
+     * characters become spaces, runs of spaces one, trimmed, and at most
+     * {@link #MAX_INTENT_QUERY_LENGTH} characters (never half a character). Null when nothing is
+     * left.
+     */
+    public static @Nullable String cleanIntentQuery(@Nullable String raw) {
+        if (raw == null) {
+            return null;
+        }
+        final StringBuilder out = new StringBuilder(Math.min(raw.length(), 256));
+        boolean space = false;
+        for (int i = 0; i < raw.length(); ) {
+            final int cp = raw.codePointAt(i);
+            i += Character.charCount(cp);
+            if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)
+                    || Character.isISOControl(cp) || Character.getType(cp) == Character.FORMAT) {
+                space = out.length() > 0;
+                continue;
+            }
+            final int width = Character.charCount(cp) + (space ? 1 : 0);
+            if (out.length() + width > MAX_INTENT_QUERY_LENGTH) {
+                break;
+            }
+            if (space) {
+                out.append(' ');
+                space = false;
+            }
+            out.appendCodePoint(cp);
+        }
+        return out.length() == 0 ? null : out.toString();
     }
 
     /**

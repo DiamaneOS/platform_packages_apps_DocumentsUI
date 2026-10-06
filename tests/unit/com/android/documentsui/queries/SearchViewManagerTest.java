@@ -23,6 +23,7 @@ import static android.provider.DocumentsContract.QUERY_ARG_MIME_TYPES;
 import static android.provider.DocumentsContract.Root.FLAG_SUPPORTS_SEARCH;
 import static android.provider.Flags.FLAG_ENABLE_DOCUMENTS_TRASH_API;
 
+import static com.android.documentsui.base.State.ACTION_BROWSE;
 import static com.android.documentsui.base.State.ACTION_GET_CONTENT;
 import static com.android.documentsui.flags.Flags.FLAG_USE_MATERIAL3;
 
@@ -40,6 +41,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
@@ -252,6 +254,55 @@ public final class SearchViewManagerTest {
 
         mSearchViewManager.parseQueryContentFromIntent(intent, ACTION_GET_CONTENT);
         assertEquals(queryString, mSearchViewManager.getQueryContentFromIntent());
+    }
+
+    @Test
+    public void testParseQueryContent_browseSearchIntent_readsOnlyTheSearchQuery() {
+        Intent intent = new Intent(Intent.ACTION_SEARCH);
+        intent.putExtra(SearchManager.QUERY, "  holiday\n photos ");
+        intent.putExtra(Intent.EXTRA_CONTENT_QUERY, "other");
+
+        assertTrue(mSearchViewManager.parseQueryContentFromIntent(intent, ACTION_BROWSE));
+        assertEquals("holiday photos", mSearchViewManager.getQueryContentFromIntent());
+    }
+
+    @Test
+    public void testParseQueryContent_browseWithoutSearchAction_notParsed() {
+        Intent intent = new Intent(Intent.ACTION_MAIN);
+        intent.putExtra(SearchManager.QUERY, "query");
+        intent.putExtra(Intent.EXTRA_CONTENT_QUERY, "query");
+
+        assertFalse(mSearchViewManager.parseQueryContentFromIntent(intent, ACTION_BROWSE));
+        assertTrue(mSearchViewManager.getQueryContentFromIntent() == null);
+    }
+
+    @Test
+    public void testParseQueryContent_pickerIgnoresTheSearchQuery() {
+        Intent intent = new Intent(Intent.ACTION_SEARCH);
+        intent.putExtra(SearchManager.QUERY, "query");
+
+        assertFalse(mSearchViewManager.parseQueryContentFromIntent(intent, ACTION_GET_CONTENT));
+        assertTrue(mSearchViewManager.getQueryContentFromIntent() == null);
+    }
+
+    @Test
+    public void testParseQueryContent_browseBlankQuery_notParsed() {
+        Intent intent = new Intent(Intent.ACTION_SEARCH);
+        intent.putExtra(SearchManager.QUERY, " \u200b\t ");
+
+        assertFalse(mSearchViewManager.parseQueryContentFromIntent(intent, ACTION_BROWSE));
+    }
+
+    @Test
+    public void testCleanIntentQuery() {
+        assertEquals(null, SearchViewManager.cleanIntentQuery(null));
+        assertEquals(null, SearchViewManager.cleanIntentQuery(" \u0000\u202e "));
+        assertEquals("a b", SearchViewManager.cleanIntentQuery("a\u0007\u202eb"));
+        final int max = SearchViewManager.MAX_INTENT_QUERY_LENGTH;
+        assertEquals(max, SearchViewManager.cleanIntentQuery("x".repeat(max + 50)).length());
+        // Never half of a character outside the basic plane.
+        final String emoji = "x".repeat(max - 1) + "\ud83d\ude00";
+        assertEquals(max - 1, SearchViewManager.cleanIntentQuery(emoji).length());
     }
 
     @Test
