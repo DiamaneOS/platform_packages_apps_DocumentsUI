@@ -841,6 +841,17 @@ public class ActionHandlerTest {
     }
 
     @Test
+    public void testInitLocation_SearchStartsInInternalStorage() throws Exception {
+        mActivity.resources.strings.put(R.string.default_root_uri,
+                TestProvidersAccess.DOWNLOADS.getUri().toString());
+        Intent intent = mActivity.getIntent();
+        intent.setAction(Intent.ACTION_SEARCH);
+
+        mHandler.initLocation(intent);
+        assertRootPicked(TestProvidersAccess.EXTERNALSTORAGE.getUri());
+    }
+
+    @Test
     public void testInitLocation_BrowseRoot() throws Exception {
         Intent intent = mActivity.getIntent();
         intent.setAction(Intent.ACTION_VIEW);
