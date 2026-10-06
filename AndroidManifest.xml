@@ -211,6 +211,22 @@
             </intent-filter>
         </activity>
 
+        <!-- DiamaneOS: opens Files searching for words another app hands it (ACTION_SEARCH with
+             SearchManager.QUERY), such as Home's search. It reads only those words, and starts
+             Files in browse mode in a task of its own, so nothing goes back to the caller. -->
+        <activity
+            android:name=".files.FilesSearchActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <activity-alias
             android:name=".LaunchFilesActivity"
             android:targetActivity=".files.FilesActivity"

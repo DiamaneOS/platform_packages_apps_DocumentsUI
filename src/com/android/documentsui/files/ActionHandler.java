@@ -645,6 +645,13 @@ public class ActionHandler<T extends FragmentActivity & AbstractActionHandler.Co
             return;
         }
 
+        if (launchToSearch(intent)) {
+            if (DEBUG) {
+                Log.d(TAG, "Launched to search internal storage.");
+            }
+            return;
+        }
+
         if (DEBUG) {
             Log.d(TAG, "Launching directly into Home directory.");
         }
@@ -791,6 +798,18 @@ public class ActionHandler<T extends FragmentActivity & AbstractActionHandler.Co
                         Providers.AUTHORITY_STORAGE, Providers.DOWNLOAD_DOCUMENT_ID)
                 : DocumentsContract.buildRootUri(
                         Providers.AUTHORITY_DOWNLOADS, Providers.ROOT_ID_DOWNLOADS);
+    }
+
+    /**
+     * DiamaneOS: a search handed to Files ({@link FilesSearchActivity}) starts in internal storage,
+     * so that it searches all of it rather than the default root (Downloads).
+     */
+    private boolean launchToSearch(Intent intent) {
+        if (Intent.ACTION_SEARCH.equals(intent.getAction())) {
+            loadDeviceRoot();
+            return true;
+        }
+        return false;
     }
 
     private boolean launchToDownloads(Intent intent) {
