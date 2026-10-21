@@ -28,6 +28,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.android.documentsui.R;
+import com.android.documentsui.queries.SearchIntentQuery;
 import com.android.documentsui.queries.SearchViewManager;
 
 /**
@@ -59,7 +60,7 @@ public class FilesSearchActivity extends Activity {
             return null;
         }
         try {
-            return SearchViewManager.cleanIntentQuery(intent.getStringExtra(SearchManager.QUERY));
+            return SearchIntentQuery.cleanIntentQuery(intent.getStringExtra(SearchManager.QUERY));
         } catch (RuntimeException e) {
             // Extras that cannot be read: no words, and Files opens as usual.
             return null;

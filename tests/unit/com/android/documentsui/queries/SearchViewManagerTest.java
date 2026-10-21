@@ -294,18 +294,6 @@ public final class SearchViewManagerTest {
     }
 
     @Test
-    public void testCleanIntentQuery() {
-        assertEquals(null, SearchViewManager.cleanIntentQuery(null));
-        assertEquals(null, SearchViewManager.cleanIntentQuery(" \u0000\u202e "));
-        assertEquals("a b", SearchViewManager.cleanIntentQuery("a\u0007\u202eb"));
-        final int max = SearchViewManager.MAX_INTENT_QUERY_LENGTH;
-        assertEquals(max, SearchViewManager.cleanIntentQuery("x".repeat(max + 50)).length());
-        // Never half of a character outside the basic plane.
-        final String emoji = "x".repeat(max - 1) + "\ud83d\ude00";
-        assertEquals(max - 1, SearchViewManager.cleanIntentQuery(emoji).length());
-    }
-
-    @Test
     public void testIsExpanded_ExpandsOnClick() {
         mSearchViewManager.onClick(null);
         assertTrue(mSearchViewManager.isExpanded());

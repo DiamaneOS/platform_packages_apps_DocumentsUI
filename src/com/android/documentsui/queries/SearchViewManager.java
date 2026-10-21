@@ -87,9 +87,6 @@ public class SearchViewManager implements
     // How long we wait after the user finishes typing before kicking off a search.
     public static final int SEARCH_DELAY_MS = 750;
 
-    /** DiamaneOS: the most of the words another app hands Files to search for that are kept. */
-    public static final int MAX_INTENT_QUERY_LENGTH = 200;
-
     private final SearchManagerListener mListener;
     private final EventHandler<String> mCommandProcessor;
     private final SearchChipViewManager mChipViewManager;
@@ -194,7 +191,8 @@ public class SearchViewManager implements
      * <p>DiamaneOS: also in browse mode ({@link State#ACTION_BROWSE}) for an
      * {@link Intent#ACTION_SEARCH} intent, with the words in {@link SearchManager#QUERY}, as
      * {@code FilesSearchActivity} hands them on. Only those words are read, cleaned and capped
-     * ({@link #cleanIntentQuery}). They are searched for but not added to the search history.
+     * ({@link SearchIntentQuery#cleanIntentQuery}). They are searched for but not added to the
+     * search history.
      *
      * @param intent the intent to parse.
      * @param action the action to check.
@@ -209,46 +207,13 @@ public class SearchViewManager implements
             }
         } else if (action == ACTION_BROWSE && Intent.ACTION_SEARCH.equals(intent.getAction())) {
             final String queryString =
-                    cleanIntentQuery(intent.getStringExtra(SearchManager.QUERY));
+                    SearchIntentQuery.cleanIntentQuery(intent.getStringExtra(SearchManager.QUERY));
             if (queryString != null) {
                 mQueryContentFromIntent = queryString;
                 return true;
             }
         }
         return false;
-    }
-
-    /**
-     * DiamaneOS: the words another app hands Files to search for, as searched: control and format
-     * characters become spaces, runs of spaces one, trimmed, and at most
-     * {@link #MAX_INTENT_QUERY_LENGTH} characters (never half a character). Null when nothing is
-     * left.
-     */
-    public static @Nullable String cleanIntentQuery(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        final StringBuilder out = new StringBuilder(Math.min(raw.length(), 256));
-        boolean space = false;
-        for (int i = 0; i < raw.length(); ) {
-            final int cp = raw.codePointAt(i);
-            i += Character.charCount(cp);
-            if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)
-                    || Character.isISOControl(cp) || Character.getType(cp) == Character.FORMAT) {
-                space = out.length() > 0;
-                continue;
-            }
-            final int width = Character.charCount(cp) + (space ? 1 : 0);
-            if (out.length() + width > MAX_INTENT_QUERY_LENGTH) {
-                break;
-            }
-            if (space) {
-                out.append(' ');
-                space = false;
-            }
-            out.appendCodePoint(cp);
-        }
-        return out.length() == 0 ? null : out.toString();
     }
 
     /**
