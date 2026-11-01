@@ -203,6 +203,29 @@ public class DragAndDropManagerTests {
     }
 
     @Test
+    public void testApplicationManagerDoesNotInflateViews() {
+        android.content.Context applicationContext =
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                        .getTargetContext().getApplicationContext();
+        android.content.Context context = new android.content.ContextWrapper(applicationContext) {
+            @Override
+            public android.content.Context getApplicationContext() {
+                return this;
+            }
+
+            @Override
+            public Object getSystemService(String name) {
+                if (LAYOUT_INFLATER_SERVICE.equals(name)) {
+                    throw new AssertionError("Application startup must not inflate drag views");
+                }
+                return super.getSystemService(name);
+            }
+        };
+
+        assertNotNull(DragAndDropManager.create(context, mClipper, mEnv.providers));
+    }
+
+    @Test
     public void testStartDrag_SetsCorrectClipData() {
         mManager.startDrag(
                 mStartDragView,

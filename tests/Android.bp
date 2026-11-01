@@ -18,7 +18,7 @@ package {
 }
 
 java_defaults {
-    name: "DocumentsUITests-defaults",
+    name: "DocumentsUITests-common-defaults",
     libs: [
         "android.test.base.stubs.system",
         "android.test.mock.stubs.system",
@@ -42,13 +42,47 @@ java_defaults {
         "kotlinx_coroutines_test",
         "mockito-kotlin-nodeps",
         "mockito-kotlin2",
-        "mockito-target",
         "microbenchmark-device-lib",
         "platform-test-annotations",
     ],
     lint: {
         test: true,
     },
+}
+
+java_defaults {
+    name: "DocumentsUITests-defaults",
+    defaults: ["DocumentsUITests-common-defaults"],
+    static_libs: ["mockito-target"],
+}
+
+// Keep unit mocks in a debuggable test process instead of the production app.
+android_test {
+    name: "DocumentsUIDragAndDropTests",
+    defaults: ["DocumentsUITests-common-defaults"],
+    manifest: "AndroidManifestDragAndDropTests.xml",
+    dont_merge_manifests: true,
+    srcs: [
+        "common/**/*.java",
+        "common/**/*.kt",
+        "unit/com/android/documentsui/DragAndDropManagerTests.java",
+    ],
+    resource_dirs: ["res"],
+    static_libs: [
+        "DocumentsUI-lib",
+        "mockito-target-extended",
+    ],
+    jni_libs: [
+        "libdexmakerjvmtiagent",
+        "libstaticjvmtiagent",
+    ],
+    platform_apis: true,
+    certificate: "platform",
+    optimize: {
+        enabled: false,
+    },
+    min_sdk_version: "30",
+    test_suites: ["device-tests"],
 }
 
 android_library {

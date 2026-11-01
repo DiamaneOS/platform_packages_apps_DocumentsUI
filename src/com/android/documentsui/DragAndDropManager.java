@@ -77,6 +77,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * Manager that tracks control key state, calculates the default file operation (move or copy)
@@ -298,8 +299,10 @@ public interface DragAndDropManager {
         private final Context mContext;
         private final DocumentClipper mClipper;
         private final Executor mBgThreadExecutor;
-        private final DragShadowBuilder mShadowBuilder;
-        private final Drawable mDefaultShadowIcon;
+        private final Function<Context, DragShadowBuilder> mShadowBuilderFactory;
+        private final Function<Context, Drawable> mDefaultShadowIconFactory;
+        private DragShadowBuilder mShadowBuilder;
+        private Drawable mDefaultShadowIcon;
         private final Executor mMainThreadExecutor;
         private final ProvidersAccess mProviders;
 
@@ -344,8 +347,8 @@ public interface DragAndDropManager {
                     context.getApplicationContext(),
                     clipper,
                     bgThreadExecutor,
-                    new DragShadowBuilder(context),
-                    IconUtils.loadMimeIcon(context, MimeTypes.GENERIC_TYPE),
+                    null,
+                    null,
                     providers);
         }
 
@@ -354,14 +357,16 @@ public interface DragAndDropManager {
                 Context context,
                 DocumentClipper clipper,
                 Executor bgThreadExecutor,
-                DragShadowBuilder builder,
-                Drawable defaultShadowIcon,
+                @Nullable DragShadowBuilder builder,
+                @Nullable Drawable defaultShadowIcon,
                 ProvidersAccess providers) {
             mContext = context;
             mClipper = clipper;
             mBgThreadExecutor = bgThreadExecutor;
-            mShadowBuilder = builder;
-            mDefaultShadowIcon = defaultShadowIcon;
+            mShadowBuilderFactory = builder != null ? uiContext -> builder : DragShadowBuilder::new;
+            mDefaultShadowIconFactory = defaultShadowIcon != null
+                    ? uiContext -> defaultShadowIcon
+                    : uiContext -> IconUtils.loadMimeIcon(uiContext, MimeTypes.GENERIC_TYPE);
             mMainThreadExecutor = context.getMainExecutor();
             mProviders = providers;
         }
@@ -425,6 +430,9 @@ public interface DragAndDropManager {
                     DRAG_EVENT_COOKIE);
             mDragInitiated = true;
             mView = v;
+            // The manager lives in the application, but views need the current
+            // window's configuration and theme, including in multi-window mode.
+            createShadow(v.getContext());
             mInvalidDest = invalidDest;
             mMustBeCopied = !selectionDetails.canDelete();
             mCanDragAndDrop = canDragAndDrop;
@@ -484,6 +492,11 @@ public interface DragAndDropManager {
                     mShadowBuilder,
                     this, // Used to detect multi-window drag and drop
                     flag);
+        }
+
+        private void createShadow(Context uiContext) {
+            mShadowBuilder = mShadowBuilderFactory.apply(uiContext);
+            mDefaultShadowIcon = mDefaultShadowIconFactory.apply(uiContext);
         }
 
         private void updateShadow(List<DocumentInfo> srcs, IconHelper iconHelper) {
@@ -651,6 +664,9 @@ public interface DragAndDropManager {
         private void updateState(@State int state) {
             mState = state;
 
+            if (mShadowBuilder == null) {
+                createShadow(mView.getContext());
+            }
             mShadowBuilder.onStateUpdated(state);
             updateDragShadow(mView);
         }
@@ -753,6 +769,8 @@ public interface DragAndDropManager {
             // limitation.
 
             mView = null;
+            mShadowBuilder = null;
+            mDefaultShadowIcon = null;
             mInvalidDest = null;
             mClipData = null;
             mDestDoc = null;
