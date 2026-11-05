@@ -108,6 +108,7 @@ public class SearchViewManager implements
     private boolean mShowSearchBar;
     private @Nullable SearchLocationOption mLocationOption;
     private boolean mShowDockedSearch;
+    private boolean mDestroyed;
 
     private @Nullable Menu mMenu;
     private @Nullable MenuItem mMenuItem;
@@ -544,6 +545,7 @@ public class SearchViewManager implements
 
     /** Cancels any queued search and stops the timer thread. */
     public void destroy() {
+        mDestroyed = true;
         cancelQueuedSearch();
         mTimer.cancel();
     }
@@ -852,6 +854,10 @@ public class SearchViewManager implements
     }
 
     private void performSearch(String newText) {
+        // The timer is cancelled, and scheduling on it would throw.
+        if (mDestroyed) {
+            return;
+        }
         if (isSearchV2Enabled()) {
             mListener.onSearchStarting();
         }
