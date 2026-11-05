@@ -46,19 +46,19 @@ public class ItemDragListener<H extends DragHost> implements OnDragListener {
     static final int DEFAULT_SPRING_TIMEOUT = 1500;
 
     protected final H mDragHost;
-    private final Timer mHoverTimer;
+    private @Nullable Timer mHoverTimer;
     private int mSpringTimeout;
 
     public ItemDragListener(H dragHost) {
-        this(dragHost, new Timer(), DEFAULT_SPRING_TIMEOUT);
+        this(dragHost, null, DEFAULT_SPRING_TIMEOUT);
     }
 
     public ItemDragListener(H dragHost, int springTimeout) {
-        this(dragHost, new Timer(), springTimeout);
+        this(dragHost, null, springTimeout);
     }
 
     @VisibleForTesting
-    protected ItemDragListener(H dragHost, Timer timer, int springTimeout) {
+    protected ItemDragListener(H dragHost, @Nullable Timer timer, int springTimeout) {
         mDragHost = dragHost;
         mHoverTimer = timer;
         mSpringTimeout = springTimeout;
@@ -103,6 +103,10 @@ public class ItemDragListener<H extends DragHost> implements OnDragListener {
             return;
         }
         v.setTag(getRes(R.id.drag_hovering_tag), task);
+        // Created on first use, so a listener that never sees a drag holds no thread.
+        if (mHoverTimer == null) {
+            mHoverTimer = new Timer();
+        }
         mHoverTimer.schedule(task, mSpringTimeout);
     }
 

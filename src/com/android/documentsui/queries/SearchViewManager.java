@@ -542,6 +542,12 @@ public class SearchViewManager implements
         return (int) (dp * scale + 0.5f);
     }
 
+    /** Cancels any queued search and stops the timer thread. */
+    public void destroy() {
+        cancelQueuedSearch();
+        mTimer.cancel();
+    }
+
     private void cancelQueuedSearch() {
         synchronized (mSearchLock) {
             if (mQueuedSearchTask != null) {

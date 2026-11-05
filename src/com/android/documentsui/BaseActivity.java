@@ -723,6 +723,7 @@ public abstract class BaseActivity
         mRootsMonitor.stop();
         mPreferencesMonitor.stop();
         mSortController.destroy();
+        mSearchManager.destroy();
         mNetworkMonitor.teardown();
         DocumentsApplication.invalidateUserManagerState(this);
         super.onDestroy();

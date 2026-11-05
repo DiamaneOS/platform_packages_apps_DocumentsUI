@@ -361,6 +361,16 @@ public final class SearchViewManagerTest {
     }
 
     @Test
+    public void testDestroy_CancelsQueuedSearch() throws Exception {
+        mSearchViewManager.onClick(null);
+        mSearchViewManager.onQueryTextChange("q");
+        mSearchViewManager.destroy();
+        assertFalse(mTestTimer.hasScheduledTask());
+        fastForwardTo(SearchViewManager.SEARCH_DELAY_MS);
+        assertFalse(mSearchViewManager.isSearching());
+    }
+
+    @Test
     public void testIsSearching_FalseIfSearchCanceled() throws Exception {
         mSearchViewManager.onClick(null);
         mSearchViewManager.onQueryTextChange("q");
