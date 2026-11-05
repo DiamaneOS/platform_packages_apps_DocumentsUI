@@ -144,6 +144,32 @@ class JobPanelViewModelTest {
     }
 
     @Test
+    fun testEmptyUpdateDropsUnfinishedJobs() {
+        val viewModel = JobPanelViewModel()
+
+        val running =
+            MutableJobProgress(
+                id = "Job1",
+                operationType = FileOperationService.OPERATION_COPY,
+                state = Job.STATE_SET_UP,
+                numFiles = 1,
+                hasFailures = false,
+            )
+        val done =
+            MutableJobProgress(
+                id = "Job2",
+                operationType = FileOperationService.OPERATION_COPY,
+                state = Job.STATE_COMPLETED,
+                numFiles = 1,
+                hasFailures = false,
+            )
+
+        viewModel.updateProgress(listOf(running, done).toJobProgressList())
+        viewModel.updateProgress(emptyList())
+        assertEquals(listOf(done).withExpandStates(false), ArrayList(viewModel.currentJobs.values))
+    }
+
+    @Test
     fun testDismissNonExistentItem() {
         val viewModel = JobPanelViewModel()
 

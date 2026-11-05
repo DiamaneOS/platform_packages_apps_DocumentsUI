@@ -320,6 +320,10 @@ public class FileOperationService extends Service implements Job.Listener {
                 record.job.cancel();
                 updateForegroundState(record.job);
                 onFinished(record.job);
+            } else if (mVisualSignalsEnabled) {
+                // The job is gone, for example after this process was killed. Report the current
+                // jobs so the job panel drops it.
+                mJobMonitor.sendProgress();
             }
         }
 

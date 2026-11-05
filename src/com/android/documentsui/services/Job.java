@@ -201,8 +201,11 @@ abstract public class Job implements Runnable {
                 if (mState == STATE_STARTED || mState == STATE_SET_UP) mState = STATE_COMPLETED;
             }
 
-            finish();
-            listener.onFinished(this);
+            try {
+                finish();
+            } finally {
+                listener.onFinished(this);
+            }
 
             // NOTE: If this details is a JumboClipDetails, and it's still referred in primary clip
             // at this point, user won't be able to paste it to anywhere else because the underlying
