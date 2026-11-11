@@ -19,16 +19,23 @@ package com.android.documentsui.services;
 import static com.android.documentsui.base.SharedMinimal.DEBUG;
 import static com.android.documentsui.util.FlagUtils.isContentProviderClientAnrOnCancelEnabled;
 import static com.android.documentsui.util.FlagUtils.isVisualSignalsFlagEnabled;
+import static com.android.documentsui.util.FlagUtils.isZipNgFlagEnabled;
 import static com.android.documentsui.util.Material3Config.getRes;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.icu.text.MessageFormat;
+import android.net.Uri;
+import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Parcelable;
 import android.os.PowerManager;
 import android.os.UserManager;
 import android.util.Log;
@@ -36,14 +43,19 @@ import android.util.Log;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
+import com.android.documentsui.OperationDialogFragment;
 import com.android.documentsui.R;
 import com.android.documentsui.base.Features;
+import com.android.documentsui.base.Shared;
+import com.android.documentsui.files.FilesActivity;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,6 +86,8 @@ public class FileOperationService extends Service implements Job.Listener {
     public static final String ACTION_PROGRESS = "com.android.documentsui.action.PROGRESS";
     public static final String EXTRA_PROGRESS = "com.android.documentsui.PROGRESS";
     public static final String EXTRA_PROGRESS_ID = "com.android.documentsui.PROGRESS_ID";
+    /** DiamaneOS: a binder of the process that sent the progress, to learn when it dies. */
+    public static final String EXTRA_PROCESS_TOKEN = "com.android.documentsui.PROCESS_TOKEN";
 
     @IntDef({
             OPERATION_UNKNOWN,
@@ -159,6 +173,9 @@ public class FileOperationService extends Service implements Job.Listener {
     private PowerManager.WakeLock mWakeLock;  // the wake lock, if held.
 
     private int mLastServiceId;
+
+    // DiamaneOS: sent with the progress so the job panel can link to the death of this process.
+    private final Binder mProcessToken = new Binder();
 
     @Override
     public void onCreate() {
@@ -542,6 +559,109 @@ public class FileOperationService extends Service implements Job.Listener {
         }
     }
 
+    /**
+     * DiamaneOS: removes the progress notification of a job whose service process died before
+     * the job ended, and shows its failure notification. Runs in the UI process, from the last
+     * progress the job reported.
+     */
+    public static void notifyJobLost(Context context, JobProgress progress) {
+        final NotificationManager manager = context.getSystemService(NotificationManager.class);
+        manager.cancel(progress.id, NOTIFICATION_ID_PROGRESS);
+
+        // The same titles and icons as the failure notifications of the jobs. The job panel only
+        // runs with Material 3, so the titles are the Material 3 ones.
+        final int titleId;
+        final int icon;
+        switch (progress.operationType) {
+            case OPERATION_COPY:
+            case OPERATION_EXTRACT:
+                titleId = R.string.copy_error_2;
+                icon = R.drawable.ic_menu_copy;
+                break;
+            case OPERATION_MOVE:
+                titleId = R.string.move_error_2;
+                icon = R.drawable.ic_menu_copy;
+                break;
+            case OPERATION_DELETE:
+                titleId = R.string.delete_error_2;
+                icon = R.drawable.ic_menu_delete;
+                break;
+            case OPERATION_COMPRESS:
+                titleId = isZipNgFlagEnabled()
+                        ? R.string.compress_error_2
+                        : R.string.compress_error_notification_title;
+                icon = R.drawable.ic_menu_compress;
+                break;
+            case OPERATION_UNPACK:
+                titleId = R.string.extract_error_2;
+                icon = R.drawable.ic_menu_extract;
+                break;
+            case OPERATION_TRASH:
+                titleId = R.string.trash_error_2;
+                icon = R.drawable.ic_menu_delete;
+                break;
+            case OPERATION_RESTORE:
+                titleId = R.string.restore_error_2;
+                icon = R.drawable.ic_menu_restore_from_trash;
+                break;
+            default:
+                return;
+        }
+
+        // Without failure details, count every file of the job, as none is known to be done.
+        int count = progress.failedDocs.size() + progress.failedUris.size()
+                + progress.failedPaths.size();
+        if (count == 0) {
+            count = progress.numFiles;
+        }
+        final Map<String, Object> formatArgs = new HashMap<>();
+        formatArgs.put("count", count);
+        final String title = new MessageFormat(
+                context.getString(getRes(titleId)), Locale.getDefault()).format(formatArgs);
+
+        final Intent navigateIntent = new Intent(context, FilesActivity.class);
+        navigateIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        navigateIntent.setData(
+                Uri.parse(String.format("data,%s-%s", Job.INTENT_TAG_FAILURE, progress.id)));
+        navigateIntent.putExtra(Shared.EXTRA_STACK, (Parcelable) progress.destination);
+        navigateIntent.putExtra(EXTRA_DIALOG_TYPE, OperationDialogFragment.DIALOG_TYPE_FAILURE);
+        navigateIntent.putExtra(EXTRA_OPERATION_TYPE, progress.operationType);
+        navigateIntent.putParcelableArrayListExtra(EXTRA_FAILED_DOCS, progress.failedDocs);
+        navigateIntent.putParcelableArrayListExtra(EXTRA_FAILED_URIS, progress.failedUris);
+        navigateIntent.putStringArrayListExtra(EXTRA_FAILED_PATHS, progress.failedPaths);
+
+        final Notification.Builder builder =
+                Features.create(context).isNotificationChannelEnabled()
+                        ? new Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
+                        : new Notification.Builder(context);
+        final Notification notification = builder
+                .setContentTitle(title)
+                .setContentText(
+                        context.getString(getRes(R.string.notification_touch_for_details)))
+                .setContentIntent(
+                        PendingIntent.getActivity(
+                                context,
+                                0,
+                                navigateIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT
+                                        | PendingIntent.FLAG_ONE_SHOT
+                                        | PendingIntent.FLAG_IMMUTABLE))
+                .setCategory(Notification.CATEGORY_ERROR)
+                .setSmallIcon(getRes(icon))
+                .setAutoCancel(true)
+                .build();
+        manager.notify(progress.id, NOTIFICATION_ID_FAILURE, notification);
+    }
+
+    /**
+     * DiamaneOS: removes the failure notification {@link #notifyJobLost} showed for a job that
+     * then reported a good end, as its last progress came after the death of its process.
+     */
+    public static void cancelJobLostNotification(Context context, String jobId) {
+        context.getSystemService(NotificationManager.class)
+                .cancel(jobId, NOTIFICATION_ID_FAILURE);
+    }
+
     @GuardedBy("mJobs")
     private Job getCandidateForegroundJob() {
         if (mJobs.isEmpty()) {
@@ -651,6 +771,11 @@ public class FileOperationService extends Service implements Job.Listener {
             intent.setAction(ACTION_PROGRESS);
             intent.putExtra(EXTRA_PROGRESS_ID, mLastId++);
             intent.putParcelableArrayListExtra(EXTRA_PROGRESS, progress);
+            // DiamaneOS: lets the job panel learn when this process dies, so it can mark the
+            // jobs it shows failed instead of waiting for them forever.
+            final Bundle token = new Bundle();
+            token.putBinder(EXTRA_PROCESS_TOKEN, mProcessToken);
+            intent.putExtras(token);
             sendBroadcast(intent);
         }
 

@@ -17,6 +17,8 @@ package com.android.documentsui
 
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
+import android.os.IBinder
 import android.platform.test.annotations.EnableFlags
 import android.view.MenuItem
 import android.widget.ActionMenuView
@@ -31,6 +33,7 @@ import com.android.documentsui.flags.Flags.FLAG_VISUAL_SIGNALS_RO
 import com.android.documentsui.rules.OverrideFlagsRule
 import com.android.documentsui.services.FileOperationService
 import com.android.documentsui.services.FileOperationService.ACTION_PROGRESS
+import com.android.documentsui.services.FileOperationService.EXTRA_PROCESS_TOKEN
 import com.android.documentsui.services.FileOperationService.EXTRA_PROGRESS
 import com.android.documentsui.services.Job
 import com.android.documentsui.services.JobProgress
@@ -48,6 +51,8 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.ArgumentCaptor
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 
@@ -64,18 +69,45 @@ class JobPanelControllerTest {
     private lateinit var badge: ImageView
     private lateinit var menuItem: MenuItem
 
+    private lateinit var viewModel: JobPanelViewModel
     private lateinit var controller: JobPanelController
     private var lastId = 0L
 
-    private fun sendProgress(progress: ArrayList<JobProgress>, id: Long = lastId++) {
+    private fun sendProgress(
+        progress: ArrayList<JobProgress>,
+        id: Long = lastId++,
+        token: IBinder? = null,
+    ) {
         var intent =
             Intent(ACTION_PROGRESS).apply {
                 `package` = context.packageName
                 putExtra("id", id)
                 putParcelableArrayListExtra(EXTRA_PROGRESS, progress)
+                if (token != null) {
+                    putExtras(Bundle().apply { putBinder(EXTRA_PROCESS_TOKEN, token) })
+                }
             }
         controller.onReceive(context, intent)
     }
+
+    private fun linkedDeathRecipient(token: IBinder): IBinder.DeathRecipient {
+        val recipient = ArgumentCaptor.forClass(IBinder.DeathRecipient::class.java)
+        verify(token).linkToDeath(recipient.capture(), eq(0))
+        return recipient.value
+    }
+
+    private fun runningCopy() =
+        MutableJobProgress(
+            id = "jobId1",
+            operationType = FileOperationService.OPERATION_COPY,
+            state = Job.STATE_SET_UP,
+            filename = "big.bin",
+            numFiles = 1,
+            hasFailures = false,
+            currentBytes = 4,
+            requiredBytes = 10,
+            msRemaining = -1,
+        )
 
     @Before
     fun setUp() {
@@ -96,7 +128,8 @@ class JobPanelControllerTest {
                     }
             }
 
-        controller = JobPanelController(context, TestActionHandler(), JobPanelViewModel())
+        viewModel = JobPanelViewModel()
+        controller = JobPanelController(context, TestActionHandler(), viewModel)
         TestScope().launch(UnconfinedTestDispatcher()) { controller.observeViewModel() }
         controller.setMenuItem(menuItem)
     }
@@ -264,5 +297,74 @@ class JobPanelControllerTest {
         controller.onDestroy(mock())
         // Verify that unregisterReceiver was called on the context.
         verify(mockContext).unregisterReceiver(controller)
+    }
+
+    @Test
+    fun testServiceDeathFailsRunningJobs() {
+        val lost = ArrayList<JobProgress>()
+        controller.jobLostNotifier = { _, jobProgress -> lost.add(jobProgress) }
+        val token = mock<IBinder>()
+        sendProgress(arrayListOf(runningCopy().toJobProgress()), token = token)
+
+        linkedDeathRecipient(token).binderDied()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+        val failed = viewModel.currentJobs.getValue("jobId1").jobProgress
+        assertEquals(Job.STATE_COMPLETED, failed.state)
+        assertTrue(failed.hasFailures)
+        assertEquals(arrayListOf("big.bin"), failed.failedPaths)
+        assertEquals(listOf(failed), lost)
+    }
+
+    @Test
+    fun testServiceDeathLeavesFinishedJobs() {
+        val lost = ArrayList<JobProgress>()
+        controller.jobLostNotifier = { _, jobProgress -> lost.add(jobProgress) }
+        val token = mock<IBinder>()
+        val done =
+            MutableJobProgress(
+                    id = "jobId1",
+                    operationType = FileOperationService.OPERATION_COPY,
+                    state = Job.STATE_COMPLETED,
+                    numFiles = 1,
+                    hasFailures = false,
+                )
+                .toJobProgress()
+        sendProgress(arrayListOf(done), token = token)
+
+        linkedDeathRecipient(token).binderDied()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+        assertEquals(done, viewModel.currentJobs.getValue("jobId1").jobProgress)
+        assertTrue(lost.isEmpty())
+    }
+
+    @Test
+    fun testServiceDeathLinkIsDropped() {
+        val lost = ArrayList<JobProgress>()
+        controller.jobLostNotifier = { _, jobProgress -> lost.add(jobProgress) }
+        val oldToken = mock<IBinder>()
+        val newToken = mock<IBinder>()
+        val progress = arrayListOf(runningCopy().toJobProgress())
+
+        // The same process is linked once.
+        sendProgress(progress, token = oldToken)
+        sendProgress(progress, token = oldToken)
+        val oldRecipient = linkedDeathRecipient(oldToken)
+
+        // A newer process replaces the link.
+        sendProgress(progress, token = newToken)
+        verify(oldToken).unlinkToDeath(oldRecipient, 0)
+        val newRecipient = linkedDeathRecipient(newToken)
+
+        controller.onDestroy(mock())
+        verify(newToken).unlinkToDeath(newRecipient, 0)
+
+        // Deaths seen after that change nothing.
+        oldRecipient.binderDied()
+        newRecipient.binderDied()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        assertFalse(viewModel.currentJobs.getValue("jobId1").jobProgress.isFinal)
+        assertTrue(lost.isEmpty())
     }
 }

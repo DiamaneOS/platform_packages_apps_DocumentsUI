@@ -20,7 +20,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Rect
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.RemoteException
 import android.text.format.Formatter
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MenuItem
@@ -365,6 +370,17 @@ class JobPanelController(
     /** Adapter used to display JobProgresses in the recycler list. */
     private var progressListAdapter: ProgressListAdapter? = null
 
+    /** DiamaneOS: the token of the service process whose death is watched, if any. */
+    private var serviceToken: IBinder? = null
+    private var serviceDeathRecipient: IBinder.DeathRecipient? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** DiamaneOS: shows the failure notification of a job lost with the service process. */
+    @VisibleForTesting
+    var jobLostNotifier: (Context, JobProgress) -> Unit = { context, jobProgress ->
+        FileOperationService.notifyJobLost(context, jobProgress)
+    }
+
     init {
         val filter = IntentFilter(FileOperationService.ACTION_PROGRESS)
         activityContext.registerReceiver(this, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -510,6 +526,8 @@ class JobPanelController(
 
     override fun onDestroy(owner: LifecycleOwner) {
         activityContext.unregisterReceiver(this)
+        // DiamaneOS: drop the death link, which holds this controller.
+        stopWatchingServiceProcess()
         // We need to save the popup's UI state and manually dismiss the popup, as it somehow
         // stays alive even if the activity is destroyed due to a configuration change.
         viewModel.listState =
@@ -529,6 +547,54 @@ class JobPanelController(
                 JobProgress::class.java,
             )
         viewModel.updateProgress(progresses!!)
+        // DiamaneOS: a job that ended without failures has no failure notification. Remove one
+        // shown when the death of its process was seen before this progress.
+        for (jobProgress in progresses) {
+            if (jobProgress.isFinal && !jobProgress.hasFailures) {
+                FileOperationService.cancelJobLostNotification(activityContext, jobProgress.id)
+            }
+        }
+        // DiamaneOS: watch the process running the jobs, as they never report an end if it dies.
+        watchServiceProcess(intent.extras?.getBinder(FileOperationService.EXTRA_PROCESS_TOKEN))
+    }
+
+    /** DiamaneOS: links to the death of the service process that [token] belongs to. */
+    private fun watchServiceProcess(token: IBinder?) {
+        if (token == null || token == serviceToken) {
+            return
+        }
+        stopWatchingServiceProcess()
+        // Called on a binder thread. The job panel state is only touched on the main thread.
+        val recipient = IBinder.DeathRecipient { mainHandler.post { onServiceProcessDied(token) } }
+        serviceToken = token
+        try {
+            token.linkToDeath(recipient, 0)
+        } catch (e: RemoteException) {
+            // The process died before this progress arrived.
+            onServiceProcessDied(token)
+            return
+        }
+        serviceDeathRecipient = recipient
+    }
+
+    private fun stopWatchingServiceProcess() {
+        serviceDeathRecipient?.let { serviceToken?.unlinkToDeath(it, 0) }
+        serviceToken = null
+        serviceDeathRecipient = null
+    }
+
+    /** DiamaneOS: the jobs of a dead service process end as failed, with their notification. */
+    private fun onServiceProcessDied(token: IBinder) {
+        if (token != serviceToken) {
+            // No longer watched, the controller is destroyed or a newer process sent progress.
+            return
+        }
+        serviceToken = null
+        serviceDeathRecipient = null
+        Log.w(TAG, "File operation service process died, failing its unfinished jobs")
+        for (jobProgress in viewModel.failUnfinishedJobs()) {
+            jobLostNotifier(activityContext, jobProgress)
+        }
     }
 
     private fun dismissProgress(id: String) {

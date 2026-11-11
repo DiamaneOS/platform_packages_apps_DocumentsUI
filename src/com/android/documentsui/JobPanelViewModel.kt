@@ -20,6 +20,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.documentsui.base.SharedMinimal.DEBUG
+import com.android.documentsui.services.Job
 import com.android.documentsui.services.JobProgress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -138,6 +139,38 @@ class JobPanelViewModel(scopeOverride: CoroutineScope? = null) : ViewModel() {
 
         _menuIconState.value = getMenuState()
         _jobUpdateEvent.tryEmit(Unit)
+    }
+
+    /**
+     * DiamaneOS: marks every unfinished job failed, for when the service process running them has
+     * died and they will never report an end. Returns the jobs it marked.
+     */
+    fun failUnfinishedJobs(): List<JobProgress> {
+        val lost =
+            _currentJobs.values
+                .map { it.jobProgress }
+                .filter { !it.isFinal }
+                .map { jobProgress ->
+                    val failedPaths = ArrayList(jobProgress.failedPaths)
+                    val filename = jobProgress.filename
+                    // A job of one file names it in the failure details.
+                    if (
+                        !jobProgress.hasFailures &&
+                            jobProgress.numFiles == 1 &&
+                            !filename.isNullOrEmpty()
+                    ) {
+                        failedPaths.add(filename)
+                    }
+                    jobProgress.copy(
+                        state = Job.STATE_COMPLETED,
+                        hasFailures = true,
+                        failedPaths = failedPaths,
+                    )
+                }
+        if (lost.isNotEmpty()) {
+            updateProgress(lost)
+        }
+        return lost
     }
 
     /** Removes a specific progress item from the list managed by this class. */
